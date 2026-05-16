@@ -9,11 +9,11 @@ import (
 )
 
 func main() {
-	// Argüman kontrolü
+	// Argument check
 	if len(os.Args) < 2 {
-		fmt.Println("Kullanım: agent.exe <1|2>")
-		fmt.Println("  1 : AT+FUS? sinyali gönder")
-		fmt.Println("  2 : AT+SUDDLMOD=0,0 sinyali gönder")
+		fmt.Println("Usage: agent.exe <1|2>")
+		fmt.Println("  1 : Send AT+FUS? signal")
+		fmt.Println("  2 : Send AT+SUDDLMOD=0,0 signal")
 		os.Exit(1)
 	}
 
@@ -28,35 +28,35 @@ func main() {
 		cmdStr = "AT+SUDDLMOD=0,0\r\n"
 		cmdName = "AT+SUDDLMOD=0,0"
 	default:
-		fmt.Fprintln(os.Stderr, "[-] Hata: Geçersiz parametre. Sadece 1 veya 2 kullanın.")
+		fmt.Fprintln(os.Stderr, "[-] Error: Invalid parameter. Use only 1 or 2.")
 		os.Exit(1)
 	}
 
-	// 1. Fiziksel donanım kontrolü
-	fmt.Println("[*] Fiziksel USB veriyolu kontrol ediliyor...")
+	// 1. Physical hardware check
+	fmt.Println("[*] Checking physical USB bus...")
 	cmdLive := exec.Command("pnputil", "/enum-devices", "/connected", "/class", "USB")
 	liveOutput, err := cmdLive.Output()
 	if err != nil || !strings.Contains(strings.ToUpper(string(liveOutput)), "VID_04E8") {
-		fmt.Fprintln(os.Stderr, "[-] Hata: Samsung cihazı bulunamadı. Kablo veya sürücüleri kontrol edin.")
+		fmt.Fprintln(os.Stderr, "[-] Error: Samsung device not found. Check the cable or drivers.")
 		os.Exit(1)
 	}
-	fmt.Println("[+] Samsung USB Composite Device tespit edildi.")
+	fmt.Println("[+] Samsung USB Composite Device detected.")
 
-	// 2. PowerShell ile kayıtlı modem portlarını bulma
-	fmt.Println("[*] Registry üzerinden COM portları taranıyor...")
+	// 2. Finding registered modem ports via PowerShell
+	fmt.Println("[*] Scanning COM ports via Registry...")
 	psCmd := `Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e96d-e325-11ce-bfc1-08002be10318}\0*' -ErrorAction SilentlyContinue | Where-Object { $_.MatchingDeviceId -match 'VID_04E8' -or $_.ProviderName -match 'SAMSUNG' } | Select-Object -ExpandProperty AttachedTo`
 	cmdPort := exec.Command("powershell", "-Command", psCmd)
 	portOutput, err := cmdPort.Output()
 	
 	ports := strings.Fields(strings.TrimSpace(string(portOutput)))
 	if err != nil || len(ports) == 0 {
-		fmt.Fprintln(os.Stderr, "[-] Hata: Registry'de aktif bir COM portu bulunamadı.")
+		fmt.Fprintln(os.Stderr, "[-] Error: No active COM port found in Registry.")
 		os.Exit(1)
 	}
-	fmt.Printf("[+] Olası portlar: %v\n", ports)
+	fmt.Printf("[+] Possible ports: %v\n", ports)
 
-	// 3. Port Sweeping ve Sinyal İletimi
-	fmt.Println("[*] Canlı bağlantı için portlar test ediliyor...")
+	// 3. Port Sweeping and Signal Transmission
+	fmt.Println("[*] Testing ports for live connection...")
 	var activeFile *os.File
 	var activePort string
 
@@ -71,31 +71,31 @@ func main() {
 	}
 
 	if activeFile == nil {
-		fmt.Fprintln(os.Stderr, "[-] Hata: Bütün portlar meşgul veya ulaşılamaz durumda. Açık olan diğer yazılımları kapatın.")
+		fmt.Fprintln(os.Stderr, "[-] Error: All ports are busy or unreachable. Close other open software.")
 		os.Exit(1)
 	}
 	defer activeFile.Close()
 
-	fmt.Printf("[+] %s portuna başarıyla bağlanıldı.\n", activePort)
-	fmt.Printf("[*] %s komutu gönderiliyor...\n", cmdName)
+	fmt.Printf("[+] Successfully connected to port %s.\n", activePort)
+	fmt.Printf("[*] Sending command %s...\n", cmdName)
 
-	// Sinyali cihaza yaz
+	// Write signal to the device
 	_, err = activeFile.Write([]byte(cmdStr))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[-] Hata: Veri yazılamadı: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[-] Error: Failed to write data: %v\n", err)
 		os.Exit(1)
 	}
 
 	time.Sleep(500 * time.Millisecond)
 	
-	// Yanıtı oku
+	// Read response
 	buf := make([]byte, 1024)
 	n, err := activeFile.Read(buf)
 	if err != nil && n == 0 {
-		fmt.Println("[-] Uyarı: Sinyal gönderildi fakat yanıt alınamadı (Cihaz şu an yeniden başlıyor olabilir).")
+		fmt.Println("[-] Warning: Signal sent but no response received (Device might be rebooting now).")
 		os.Exit(0)
 	}
 
-	fmt.Println("[+] Cihaz Yanıtı:")
+	fmt.Println("[+] Device Response:")
 	fmt.Println(strings.TrimSpace(string(buf[:n])))
 }
